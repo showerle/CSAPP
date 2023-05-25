@@ -188,7 +188,11 @@ int isTmax(int x) {
  *   Rating: 2
  */
 int allOddBits(int x) {
-  return 2;
+  // 构造一个32位的奇数位全为1的数 y = 0xAAAAAAAA，将其与 x 进行与运算，如果结果仍为 y, 则 x 的奇数位均为 1
+  // 注意实验要求不能使用big constants such as 0xffffffff. 所以先构造0xAA再移位
+  int mask = 0xAA << 8 | 0xAA; // OxAAAA
+  mask = mask << 16 | mask;    // 0xAAAAAAAA
+  return !(x & mask)^mask;
 }
 /* 
  * negate - return -x 
@@ -198,7 +202,7 @@ int allOddBits(int x) {
  *   Rating: 2
  */
 int negate(int x) {
-  return 2;
+  return ~x + 1;
 }
 //3
 /* 
@@ -211,7 +215,11 @@ int negate(int x) {
  *   Rating: 3
  */
 int isAsciiDigit(int x) {
-  return 2;
+  int cond1 = !(x >> 8);        // 先检查最高24位是否都为0
+  int cond2 = !(0b11 ^ (x >> 4));  // 比较中间4位是否为0011
+  int y = x & (0xF);  // 获取后四位
+  int cond3 = (y + ~0xA + 1) >> 31; // 判断后四位是否在[0,9]之间，即 y-10 < 0, 注意由于不能用-，只能用补码代替，然后通过位移获取符号位
+  return cond1 * cond2 & cond3;
 }
 /* 
  * conditional - same as x ? y : z 
@@ -221,7 +229,10 @@ int isAsciiDigit(int x) {
  *   Rating: 3
  */
 int conditional(int x, int y, int z) {
-  return 2;
+  // 本题的关键是把x转化为全0或者全1，则可以把x ? y : z 转化为 x & y + ~x & z
+  x = !x;     // 先把x转为布尔 
+  x = ~x + 1; // 再把x转为全0(x==1)，或者全1(x!=0)
+  return (x & y) | (~x & z);
 }
 /* 
  * isLessOrEqual - if x <= y  then return 1, else return 0 
@@ -231,7 +242,14 @@ int conditional(int x, int y, int z) {
  *   Rating: 3
  */
 int isLessOrEqual(int x, int y) {
-  return 2;
+  // xy异号: 看谁为正数谁大, xy同号：看x-y的符号
+  int signx = (x >> 31) ; // 获得x的符号  
+  int signy = (y >> 31) ;
+  int cond1 = !(signx ^ signy); // 同号
+  int cond2 = signx | !signy ;  // 异号
+  // cond1 = cond1 & (x + ~y + 1) >> 31; 忽略了x=y的情况下x-y也为False。所以把x <= y转换为 x < y+1，即x-y-1 < 0
+  cond1 = cond1 & (x + ~y) >> 31;  // 查看x-y-1的符号;
+  return cond1 | cond2 ;
 }
 //4
 /* 
