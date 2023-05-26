@@ -261,7 +261,9 @@ int isLessOrEqual(int x, int y) {
  *   Rating: 4 
  */
 int logicalNeg(int x) {
-  return 2;
+  // 本题的关键在于利用当x=0时, x与-x符号相等的特点
+  // 先求取x与-x的做或/异或运算的符号位，因为x != 0时，由于符号位为1 ，右移后的结果便为0x11111111, 令其加1 ，刚好为0， 满足返回要求
+  return ((~x + 1) | x >> 31) + 1;
 }
 /* howManyBits - return the minimum number of bits required to represent x in
  *             two's complement
@@ -276,7 +278,41 @@ int logicalNeg(int x) {
  *  Rating: 4
  */
 int howManyBits(int x) {
-  return 0;
+  /*
+  x 为正数，以八位为例：0011 1010，需找到最高位 1，除此以外，还需一位 0 作为符号位；
+  x 为负数，以八位为例：1100 1001，需找到最高位 0，除此以外，还需更高一位 1 作为符号位
+  所以为了统一，不妨当 x 为负数时，将其取反， 那么也只需要找到最高位 1 后再加一位即可
+  */
+  int sign = x >> 31 ; 
+  x = (~sign & x) | (sign & ~x);
+
+  // 接下来使用二分法，先考虑高16位是否存在1
+  int y = !!(x >> 16); // 把高16位规格化
+  /*
+  若高16位有1，处理后的y=0x00000001。说明x需要的位数至少为16，引入变量 bit16 记录该权重,将处理后的x左移4位即可得到16;
+  如果高16位没有1, x左移4位得到0 
+  */
+  int bit16 = y << 4; 
+  
+  /*
+  如果高16位有1 ，则将x右移16位，对右移后的x的低16位中的高8位进行同样的操作，从而二分地在x的高16位中找到最大位的1;
+  如果高16位没有1 ，则x无需右移， 在x的低16位中的高8位进行同样的操作
+  */
+  x = x >> bit16;
+
+  // 同理，分别对高 8 位，4位，2位，1位进行检查，检查后进行同样的操作
+  int bit8 = !!(x >> 8) << 3;
+  x = x >> bit8;
+  int bit4 = !!(x >> 4) << 2;
+  x = x >> bit4;
+  int bit2 = !!(x >> 2) << 1;
+  x = x >> bit2;
+  int bit1 = !!(x >> 1);  // 剩下最后一位，x不需要移动
+  x = x >> bit1;
+  int bit0 = x;
+
+  // 最后将所有权重求和
+  return bit16 + bit8 + bit4 + bit2 + bit1 + bit0;
 }
 //float
 /* 
@@ -291,7 +327,19 @@ int howManyBits(int x) {
  *   Rating: 4
  */
 unsigned floatScale2(unsigned uf) {
-  return 2;
+  unsigned sign = uf >> 31;
+  unsigned exp = uf >> 23;
+  unsigned frac = uf & 0x7FFFFF;
+
+  if(exp == 0) {                 // Denormailized
+    frac = frac << 1;
+    return (sign << 31) | (exp << 23) | frac; 
+  }
+  if(exp != 0 && exp !=255) {    // Normalized
+    exp++;
+    return (sign << 31) | (exp << 23) | frac;  
+  }
+  return uf ;                     // Nan
 }
 /* 
  * floatFloat2Int - Return bit-level equivalent of expression (int) f
@@ -306,7 +354,24 @@ unsigned floatScale2(unsigned uf) {
  *   Rating: 4
  */
 int floatFloat2Int(unsigned uf) {
-  return 2;
+  unsigned sign = uf >> 31;
+  unsigned exp = uf >> 23;
+  unsigned frac = uf & 0x7FFFFF;
+
+  int E = exp - 127;
+  frac = frac | (1 << 23);   // 规格化的数据，f开头为“1.”
+
+  if(E < 0) return 0;    // 非规格化的数据 < 1.0
+  else if(E > 32) return 0x80000000u; //  infinity
+  else{
+    if(E > 23)                     // frac有23位，若 E > 23,
+      {frac = frac << (23 - E);   // 需要在frac的末尾添加 (E - 23) 个 0
+    }else{
+      frac = frac >> (E - 23);    // E < 23, 则frac末尾的 (23 - E)个数无法保留
+    }
+  }
+  if(sign) return ~frac + 1;  // 负数的情况
+  return frac;
 }
 /* 
  * floatPower2 - Return bit-level equivalent of the expression 2.0^x
