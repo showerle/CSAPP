@@ -218,7 +218,7 @@ int isAsciiDigit(int x) {
   int cond1 = !(x >> 8);        // 先检查最高24位是否都为0
   int cond2 = !(0b11 ^ (x >> 4));  // 比较中间4位是否为0011
   int y = x & (0xF);  // 获取后四位
-  int cond3 = (y + ~0xA + 1) >> 31; // 判断后四位是否在[0,9]之间，即 y-10 < 0, 注意由于不能用-，只能用补码代替，然后通过位移获取符号位
+  int cond3 = ((y + ~0xA + 1) >> 31) & 0x1; // 判断后四位是否在[0,9]之间，即 y-10 < 0, 注意由于不能用-，只能用补码代替，然后通过位移获取符号位
   return cond1 * cond2 & cond3;
 }
 /* 
@@ -243,12 +243,12 @@ int conditional(int x, int y, int z) {
  */
 int isLessOrEqual(int x, int y) {
   // xy异号: 看谁为正数谁大, xy同号：看x-y的符号
-  int signx = (x >> 31) ; // 获得x的符号  
-  int signy = (y >> 31) ;
+  int signx = (x >> 31) & 0x1; // 获得x的符号  
+  int signy = (y >> 31) & 0x1;
   int cond1 = !(signx ^ signy); // 同号
   int cond2 = signx | !signy ;  // 异号
   // cond1 = cond1 & (x + ~y + 1) >> 31; 忽略了x=y的情况下x-y也为False。所以把x <= y转换为 x < y+1，即x-y-1 < 0
-  cond1 = cond1 & (x + ~y) >> 31;  // 查看x-y-1的符号;
+  cond1 = cond1 & (x + ~y) >> 31 & 0x1;  // 查看x-y-1的符号;
   return cond1 | cond2 ;
 }
 //4
@@ -283,7 +283,7 @@ int howManyBits(int x) {
   x 为负数，以八位为例：1100 1001，需找到最高位 0，除此以外，还需更高一位 1 作为符号位
   所以为了统一，不妨当 x 为负数时，将其取反， 那么也只需要找到最高位 1 后再加一位即可
   */
-  int sign = x >> 31 ; 
+  int sign = x >> 31 & 0x1; 
   x = (~sign & x) | (sign & ~x);
 
   // 接下来使用二分法，先考虑高16位是否存在1
@@ -327,8 +327,8 @@ int howManyBits(int x) {
  *   Rating: 4
  */
 unsigned floatScale2(unsigned uf) {
-  unsigned sign = uf >> 31;
-  unsigned exp = uf >> 23;
+  unsigned sign = (uf >> 31) & 0x1 ;
+  unsigned exp = (uf >> 23) & 0xFF;
   unsigned frac = uf & 0x7FFFFF;
 
   if(exp == 0) {                 // Denormailized
@@ -354,23 +354,23 @@ unsigned floatScale2(unsigned uf) {
  *   Rating: 4
  */
 int floatFloat2Int(unsigned uf) {
-  unsigned sign = uf >> 31;
-  unsigned exp = uf >> 23;
+  unsigned sign = (uf >> 31) & 0x1 ;
+  unsigned exp = (uf >> 23) & 0xFF;
   unsigned frac = uf & 0x7FFFFF;
 
   int E = exp - 127;
-  frac = frac | (1 << 23);   // 规格化的数据，f开头为“1.”
+  frac = frac | (1 << 23);              // 规格化的数据，f开头为“1.”
 
-  if(E < 0) return 0;    // 非规格化的数据 < 1.0
-  else if(E > 32) return 0x80000000u; //  infinity
+  if(E < 0) return 0;                   // 非规格化的数据, value < 1.0, f=0
+  else if(E >= 31) return 0x80000000u;  // 超过int的表示范围2^31-1，infinity或者Nan
   else{
-    if(E > 23)                     // frac有23位，若 E > 23,
-      {frac = frac << (23 - E);   // 需要在frac的末尾添加 (E - 23) 个 0
+    if(E > 23){                         // frac有23位，若 E > 23,
+      frac = frac << (23 - E);          // 需要在frac的末尾添加 (E - 23) 个 0
     }else{
-      frac = frac >> (E - 23);    // E < 23, 则frac末尾的 (23 - E)个数无法保留
+      frac = frac >> (E - 23);          // E < 23, 则frac末尾的 (23 - E)个数无法保留
     }
   }
-  if(sign) return ~frac + 1;  // 负数的情况
+  if(sign) return ~frac + 1;            // 负数的情况
   return frac;
 }
 /* 
@@ -387,5 +387,21 @@ int floatFloat2Int(unsigned uf) {
  *   Rating: 4
  */
 unsigned floatPower2(int x) {
-    return 2;
+/*
+结果是浮点数,浮点数各格式下的范围：
+ 格式	    |   最小值	  |   最大值
+ 规格化	  | 2^-126    |  2^{-127} X (2 - 2^-23) 
+ 非规格化	| 2^-149     | 2^{-126} X (1 - 2^-23) 
+*/
+
+if(x < -149)
+		return 0;                   // too small
+	else if(x < -126)             // 非规格化
+		return 1 << (x + 149);      // 阶码值为E = 1 - bias = -126, 是固定的，这时候只能通过控制尾码来计算。由M×2^126=2^x可得M是由1左移n位, 则x+126 = -(23 - n)，得 n = x + 149 
+	else if(x <= 127)             // 规格化
+		return (x + 127) << 23;     // 让尾码为全0，控制阶码即可。X = e - bias --> e = x + 127, return 2^(x + 127) 
+	else
+		return (0xFF) << 23;        // too big
+
+
 }
